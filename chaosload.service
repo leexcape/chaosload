@@ -1,0 +1,22 @@
+[Unit]
+Description=chaosload -- randomised system load generator
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/MyWorkspace/keep-running
+ExecStart=/usr/bin/python3 -m chaosload --profile busy
+# Let it run forever, and restart it if it ever dies for any reason.
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+# The generator does its own memory accounting; this is a second line of
+# defence so a bug can never take the host down.
+MemoryMax=90%
+OOMPolicy=continue
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

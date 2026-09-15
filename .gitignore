@@ -1,0 +1,12 @@
+# runtime state: logs, status, pid
+run/
+
+# disk-load scratch files (multi-GB, recreated on every start)
+.chaos-scratch/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
