@@ -131,6 +131,9 @@ class Config:
         self.status_file = self.status_file or os.path.join(run_dir, "status.json")
         self.pid_file = self.pid_file or os.path.join(run_dir, "chaosload.pid")
         self.target = clamp(self.target, 0.02, 0.995)
+        self.cpu_max_util = clamp(self.cpu_max_util, 0.05, 1.0)
+        # chunks must stay comfortably above the churn loop's span (1 MiB)
+        self.mem_chunk_mb = max(4, int(self.mem_chunk_mb))
         self.mem_max_frac = clamp(self.mem_max_frac, 0.10, 0.95)
         self.tick_min = clamp(self.tick_min, 0.05, 5.0)
         self.tick_max = clamp(max(self.tick_max, self.tick_min + 0.05), 0.1, 10.0)
@@ -249,11 +252,49 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _explicit(argv: list[str] | None) -> set[str]:
+    """The options the user actually typed.
+
+    The command line is parsed a second time with every default suppressed,
+    so the resulting namespace holds only what was really given. That is what
+    makes the precedence work out as:
+
+        dataclass default < profile preset < CHAOS_* env var < explicit flag
+
+    Without it, argparse's own defaults overwrite every environment override,
+    which silently discarded almost all of them.
+    """
+    p = build_parser()
+    for action in p._actions:
+        action.default = argparse.SUPPRESS
+    return set(vars(p.parse_args(argv)))
+
+
+# CLI dest -> Config field, for every flag that maps straight across.
+_SIMPLE_FLAGS = {
+    "target": "target", "speed": "speed", "shock_rate": "shock_rate",
+    "mem_max_frac": "mem_max_frac", "duration": "duration",
+    "cpu_workers": "cpu_workers", "cpu_max_util": "cpu_max_util",
+    "cpu_nice": "cpu_nice", "mem_workers": "mem_workers",
+    "mem_floor_mb": "mem_floor_mb", "mem_chunk_mb": "mem_chunk_mb",
+    "disk_workers": "disk_workers", "disk_dir": "disk_dir",
+    "disk_max_gb": "disk_max_gb", "disk_free_floor_gb": "disk_free_floor_gb",
+    "disk_max_mbps": "disk_max_mbps", "net_workers": "net_workers",
+    "net_max_mbps": "net_max_mbps", "net_host": "net_host",
+    "net_port": "net_port", "allow_external_net": "allow_external_net",
+    "chaos_rate": "chaos_rate_per_hour", "log_file": "log_file",
+    "status_file": "status_file", "pid_file": "pid_file",
+    "log_level": "log_level", "status_every": "status_every",
+    "quiet": "quiet",
+}
+
+
 def config_from_args(argv: list[str] | None = None) -> tuple[Config, argparse.Namespace]:
     args = build_parser().parse_args(argv)
+    given = _explicit(argv)
     cfg = Config()
-    _env_overrides(cfg)
 
+    # 1. the profile preset is the base load shape
     cfg.profile = args.profile
     preset = PROFILES[args.profile]
     cfg.target = preset["target"]
@@ -261,51 +302,27 @@ def config_from_args(argv: list[str] | None = None) -> tuple[Config, argparse.Na
     cfg.shock_rate = preset["shock_rate"]
     cfg.mem_max_frac = preset["mem_max_frac"]
 
-    if args.target is not None:
-        cfg.target = args.target
-    if args.speed is not None:
-        cfg.speed = args.speed
-    if args.shock_rate is not None:
-        cfg.shock_rate = args.shock_rate
-    if args.mem_max_frac is not None:
-        cfg.mem_max_frac = args.mem_max_frac
+    # 2. CHAOS_<FIELD> environment variables override the preset
+    _env_overrides(cfg)
 
-    cfg.duration = args.duration
+    # 3. flags the user actually typed override everything
+    for dest, field in _SIMPLE_FLAGS.items():
+        if dest in given:
+            setattr(cfg, field, getattr(args, dest))
+    if "no_chaos_restarts" in given:
+        cfg.chaos_restarts = False
+    if "no_respect_others" in given:
+        cfg.respect_others = False
+
     if args.only:
         wanted = {s.strip().lower() for s in args.only.split(",") if s.strip()}
         cfg.cpu, cfg.mem, cfg.disk, cfg.net = (
             "cpu" in wanted, "mem" in wanted, "disk" in wanted, "net" in wanted)
     else:
-        cfg.cpu = not args.no_cpu
-        cfg.mem = not args.no_mem
-        cfg.disk = not args.no_disk
-        cfg.net = not args.no_net
-
-    cfg.cpu_workers = args.cpu_workers
-    cfg.cpu_max_util = clamp(args.cpu_max_util, 0.05, 1.0)
-    cfg.cpu_nice = args.cpu_nice
-    cfg.mem_workers = args.mem_workers
-    cfg.mem_floor_mb = args.mem_floor_mb
-    cfg.mem_chunk_mb = max(4, args.mem_chunk_mb)
-    cfg.disk_workers = args.disk_workers
-    cfg.disk_dir = args.disk_dir
-    cfg.disk_max_gb = args.disk_max_gb
-    cfg.disk_free_floor_gb = args.disk_free_floor_gb
-    cfg.disk_max_mbps = args.disk_max_mbps
-    cfg.net_workers = args.net_workers
-    cfg.net_max_mbps = args.net_max_mbps
-    cfg.net_host = args.net_host
-    cfg.net_port = args.net_port
-    cfg.allow_external_net = args.allow_external_net
-    cfg.chaos_restarts = not args.no_chaos_restarts
-    cfg.chaos_rate_per_hour = args.chaos_rate
-    cfg.respect_others = not args.no_respect_others
-    cfg.log_file = args.log_file
-    cfg.status_file = args.status_file
-    cfg.pid_file = args.pid_file
-    cfg.log_level = args.log_level
-    cfg.status_every = args.status_every
-    cfg.quiet = args.quiet
+        for dest, field in (("no_cpu", "cpu"), ("no_mem", "mem"),
+                            ("no_disk", "disk"), ("no_net", "net")):
+            if dest in given:
+                setattr(cfg, field, False)
 
     cfg.finalize()
 

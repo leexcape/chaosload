@@ -89,6 +89,22 @@ class DiskMeter(_RateMeter):
 
     SECTOR = 512
 
+    def __init__(self) -> None:
+        super().__init__()
+        self._whole: dict[str, bool] = {}
+
+    def _is_whole_disk(self, name: str) -> bool:
+        """A whole disk has /sys/block/<name>; a partition lives under it.
+
+        Counting both `xvda` and `xvda1` would double every byte, since the
+        parent disk's counters already include its partitions'.
+        """
+        hit = self._whole.get(name)
+        if hit is None:
+            hit = os.path.isdir(f"/sys/block/{name}")
+            self._whole[name] = hit
+        return hit
+
     def sample(self) -> tuple[float, float] | None:
         read = write = 0.0
         for line in _read("/proc/diskstats").split("\n"):
@@ -98,7 +114,9 @@ class DiskMeter(_RateMeter):
             name = cols[2]
             if name.startswith(("loop", "ram", "dm-", "zram")):
                 continue
-            # skip partitions when we already count their parent disk
+            # skip partitions; the parent disk already counts their bytes
+            if not self._is_whole_disk(name):
+                continue
             try:
                 read += float(cols[5]) * self.SECTOR
                 write += float(cols[9]) * self.SECTOR

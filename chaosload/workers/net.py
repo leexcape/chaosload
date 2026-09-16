@@ -18,7 +18,7 @@ import socket
 import threading
 import time
 
-from ..control import Ctl
+from ..control import Ctl, SLOT_C
 from ..pacing import Pacer
 from ..rng import new_rng
 from ..util import clamp, die_with_parent, set_nice, set_oom_score_adj, set_proc_title
@@ -311,7 +311,10 @@ def run_client(ctl: Ctl, cfg) -> None:
 
             now = perf()
             if now - last_report >= 0.5:
-                ctl.beat(moved / (now - last_report), float(conn_count), force=True)
+                # SLOT_B is a gauge (sockets open right now); the cumulative
+                # count of connections ever opened goes to SLOT_C.
+                ctl.block[SLOT_C] = float(conn_count)
+                ctl.beat(moved / (now - last_report), float(len(conns)), force=True)
                 moved = 0.0
                 last_report = now
             else:

@@ -5,7 +5,8 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/MyWorkspace/keep-running
+# Must be the directory containing the `chaosload/` package.
+WorkingDirectory=/home/ubuntu/chaosload
 ExecStart=/usr/bin/python3 -m chaosload --profile busy
 # Let it run forever, and restart it if it ever dies for any reason.
 Restart=always

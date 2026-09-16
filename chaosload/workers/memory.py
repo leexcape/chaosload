@@ -119,16 +119,21 @@ def run(ctl: Ctl, cfg) -> None:
             while chunks and moved < burst and not ctl.should_stop():
                 buf = chunks[rng.randrange(len(chunks))]
                 size = len(buf)
-                if size <= SRC_BLOCK:
-                    continue
                 mv = memoryview(buf)
                 span = min(size, rng.choice([1 << 16, 1 << 18, SRC_BLOCK]))
-                if rng.random() < 0.55:
-                    # sequential-ish sweep (bandwidth) with a moving cursor
-                    scan_pos = (scan_pos + span) % max(1, size - span)
-                    off = scan_pos
+                # A chunk no bigger than one span has exactly one placement.
+                # Never `continue` here: this loop's only exits are `moved`
+                # advancing and the elapsed-time check below, so skipping an
+                # iteration without doing work would spin the core forever.
+                if size > span:
+                    if rng.random() < 0.55:
+                        # sequential-ish sweep (bandwidth) with a moving cursor
+                        scan_pos = (scan_pos + span) % (size - span)
+                        off = scan_pos
+                    else:
+                        off = rng.randrange(0, size - span)
                 else:
-                    off = rng.randrange(0, size - span)
+                    off = 0
                 if rng.random() < 0.5:
                     mv[off : off + span] = src[:span]        # write
                 else:

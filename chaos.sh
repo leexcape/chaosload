@@ -116,7 +116,7 @@ c, m, d, n = st["cpu"], st["mem"], st["disk"], st["net"]
 print(f"cpu:     {c['util']*100:.0f}% of target {c.get('target',0)*100:.0f}%  duty {c['duty']:.2f}  cores busy {c['cores_busy']:.2f}  load {c['loadavg']}")
 print(f"memory:  {m['used_frac']*100:.0f}% used  ours {hb(m['ours'])}  available {hb(m['available'])} of {hb(m['total'])}")
 print(f"disk:    workers {hb(d['worker_bytes_per_s'])}/s  device r {hb(d['dev_read_bytes_per_s'])}/s w {hb(d['dev_write_bytes_per_s'])}/s  held {hb(d['held_bytes'])}")
-print(f"network: workers {hb(n['worker_bytes_per_s'])}/s  loopback {hb(n['lo_bytes_per_s'])}/s  connections {n['connections']}")
+print(f"network: workers {hb(n['worker_bytes_per_s'])}/s  loopback {hb(n['lo_bytes_per_s'])}/s  connections {n['connections']} open, {n.get('connections_opened', 0)} opened")
 print("workers: " + "  ".join(f"{w['name']}{'' if w['alive'] else '(dead)'}"
                               + (f"/r{w['restarts']}" if w['restarts'] else "") for w in st["workers"]))
 print(f"stats:   {st['stats']}")

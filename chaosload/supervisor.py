@@ -27,8 +27,8 @@ import time
 
 from . import metrics
 from .config import Config, resolve_is_loopback
-from .control import (Ctl, Flags, SLOT_A, SLOT_B, SLOT_HEARTBEAT, SLOT_HINT,
-                      SLOT_PANIC, SLOT_TARGET, new_block)
+from .control import (Ctl, Flags, SLOT_A, SLOT_B, SLOT_C, SLOT_HEARTBEAT,
+                      SLOT_HINT, SLOT_PANIC, SLOT_TARGET, new_block)
 from .rng import Conductor, new_rng
 from .util import (clamp, human_bytes, human_time, pid_alive, set_proc_title,
                    setup_logging, write_atomic)
@@ -137,6 +137,10 @@ class Worker:
     @property
     def b(self) -> float:
         return self.block[SLOT_B]
+
+    @property
+    def c(self) -> float:
+        return self.block[SLOT_C]
 
 
 class Supervisor:
@@ -387,7 +391,8 @@ class Supervisor:
         disk_rate = sum(w.a for w in self.of_kind("disk"))
         disk_held = sum(w.b for w in self.of_kind("disk"))
         net_rate = sum(w.a for w in self.of_kind("net"))
-        conns = sum(w.b for w in self.of_kind("net"))
+        conns = sum(w.b for w in self.of_kind("net"))          # open right now
+        conns_opened = sum(w.c for w in self.of_kind("net"))   # cumulative
         return {
             "ts": time.time(),
             "uptime_s": round(time.monotonic() - self.started, 1),
@@ -409,6 +414,7 @@ class Supervisor:
                      "dev_write_bytes_per_s": round((dio or (0, 0))[1], 1)},
             "net": {"worker_bytes_per_s": round(net_rate, 1),
                     "connections": int(conns),
+                    "connections_opened": int(conns_opened),
                     "if_bytes_per_s": round((netio or (0, 0))[0], 1),
                     "lo_bytes_per_s": round((netio or (0, 0))[1], 1)},
             "workers": [{"name": w.name, "pid": w.proc.pid if w.proc else None,
@@ -421,7 +427,7 @@ class Supervisor:
         self.log.info(
             "lvl cpu=%.2f mem=%.2f dsk=%.2f net=%.2f aux=%.2f | cpu %3.0f%%->%.0f%% (duty %.2f, %.2f cores) "
             "| mem %3.0f%% used, ours %s, avail %s | dsk %s/s (dev r%s w%s, held %s) "
-            "| net %s/s (%s conns) | up %s restarts=%d | %s",
+            "| net %s/s (%s conns, %s opened) | up %s restarts=%d | %s",
             lv["cpu"], lv["mem"], lv["disk"], lv["net"], st["aux_scale"],
             st["cpu"]["util"] * 100, st["cpu"]["target"] * 100,
             st["cpu"]["duty"], st["cpu"]["cores_busy"],
@@ -432,6 +438,7 @@ class Supervisor:
             human_bytes(st["disk"]["dev_write_bytes_per_s"]),
             human_bytes(st["disk"]["held_bytes"]),
             human_bytes(st["net"]["worker_bytes_per_s"]), st["net"]["connections"],
+            st["net"]["connections_opened"],
             human_time(st["uptime_s"]), st["stats"]["restarts"], st["regimes"])
 
     # -------------------------------------------------------------- main --
